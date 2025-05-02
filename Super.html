@@ -1,0 +1,449 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dragon Tiger Predictor</title>
+  <link rel="manifest" href="manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+      .then(() => console.log('Service Worker Registered'));
+    }
+  
+let patternStats = {};
+let comboStats = {};
+let predictionConfidence = 0;
+
+function updatePatternStats() {
+  patternStats = {};
+  for (let i = 0; i < history.length - 1; i++) {
+    const key = history[i];
+    const next = history[i + 1];
+    if (!patternStats[key]) patternStats[key] = {};
+    patternStats[key][next] = (patternStats[key][next] || 0) + 1;
+  }
+}
+
+function updateComboStats() {
+  comboStats = {};
+  for (let i = 0; i < history.length - 2; i++) {
+    const key = history[i] + "-" + history[i + 1];
+    const next = history[i + 2];
+    if (!comboStats[key]) comboStats[key] = {};
+    comboStats[key][next] = (comboStats[key][next] || 0) + 1;
+  }
+}
+
+function getSmartPrediction() {
+  updatePatternStats();
+  updateComboStats();
+
+  const last = history[history.length - 1];
+  const last2 = history.slice(-2).join("-");
+  const suggestions = {};
+
+  if (patternStats[last]) {
+    for (let [next, freq] of Object.entries(patternStats[last])) {
+      suggestions[next] = (suggestions[next] || 0) + freq * 1.2;
+    }
+  }
+
+  if (comboStats[last2]) {
+    for (let [next, freq] of Object.entries(comboStats[last2])) {
+      suggestions[next] = (suggestions[next] || 0) + freq * 1.5;
+    }
+  }
+
+  let best = Object.entries(suggestions).sort((a, b) => b[1] - a[1])[0];
+  predictionConfidence = best ? (best[1] / Object.values(suggestions).reduce((a, b) => a + b, 0)) * 100 : 0;
+
+  return best ? best[0] : "";
+}
+
+// Modify main predict function to include smart logic
+const originalPredict = predict;
+predict = function() {
+  if (history.length < 5) {
+    return originalPredict();
+  }
+
+  const smartGuess = getSmartPrediction();
+  const backup = getBalancedPrediction();
+  const finalPrediction = smartGuess || backup || "Dragon";
+
+  lastPrediction = finalPrediction;
+  document.getElementById("prediction").textContent = "Prediction: " + finalPrediction + " (Confidence: " + predictionConfidence.toFixed(1) + "%)";
+}
+</script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; padding: 0; background: #f5f5f5; }
+    h2 { text-align: center; }
+    .container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 8px; }
+    select, button { width: 100%; padding: 10px; margin: 10px 0; }
+    ul { list-style: none; padding: 0; }
+    li { background: #e0e0e0; margin: 5px 0; padding: 10px; border-radius: 4px; }
+    .prediction, .accuracy { font-weight: bold; font-size: 18px; text-align: center; margin-top: 20px; }
+    .log { margin-top: 20px; font-size: 14px; max-height: 150px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Dragon Tiger Predictor</h2>
+    <select id="resultInput">
+      <option value="Dragon">Dragon</option>
+      <option value="Tiger">Tiger</option>
+      <option value="Tie">Tie</option>
+    </select>
+    <button onclick="addResult()">Add Result</button>
+    <ul id="historyList"></ul>
+    <button onclick="predict()">Predict Next</button>
+    <div id="prediction" class="prediction">Prediction: </div>
+    <div id="accuracy" class="accuracy">Accuracy: 0%</div>
+    <div class="log">
+      <strong>Prediction Log:</strong>
+      <ul id="predictionLog"></ul>
+    </div>
+  </div>
+  <script>
+    let history = [];
+    let correctPredictions = 0;
+    let totalPredictions = 0;
+    let lastPrediction = null;
+    let wrongStreak = 0;
+
+    function addResult() {
+      const input = document.getElementById("resultInput").value;
+      history.push(input);
+      if (lastPrediction) {
+        totalPredictions++;
+        if (lastPrediction.includes(input)) {
+          correctPredictions++;
+        } else {
+          wrongStreak++;
+        }
+        updateAccuracy(input);
+      }
+      updateHistory();
+    }
+
+    function updateHistory() {
+      const list = document.getElementById("historyList");
+      list.innerHTML = "";
+      history.slice().reverse().forEach((item, index) => {
+        const li = document.createElement("li");
+        li.textContent = (history.length - index) + ". " + item;
+        list.appendChild(li);
+      });
+    }
+
+    function updateAccuracy(actual) {
+      const acc = totalPredictions > 0 ? ((correctPredictions / totalPredictions) * 100).toFixed(1) : "0";
+      document.getElementById("accuracy").textContent = "Accuracy: " + acc + "%";
+      const log = document.getElementById("predictionLog");
+      const li = document.createElement("li");
+      const wasCorrect = lastPrediction.includes(actual);
+      li.textContent = "Predicted: " + lastPrediction + " | Actual: " + actual + (wasCorrect ? " ✔️" : " ❌");
+      log.appendChild(li);
+    }
+
+    function getSequencePrediction() {
+      if (history.length < 4) return "";
+      const seq = history.slice(-4).join("-");
+      const knownPatterns = {
+        "Dragon-Tiger-Dragon-Tiger": "Dragon",
+        "Tiger-Dragon-Tiger-Dragon": "Tiger",
+        "Dragon-Dragon-Tiger-Tiger": "Dragon",
+        "Tiger-Tiger-Dragon-Dragon": "Tiger"
+      };
+      return knownPatterns[seq] || "";
+    }
+
+    function getBalancedPrediction() {
+      const count = { Dragon: 0, Tiger: 0, Tie: 0 };
+      history.forEach(result => count[result]++);
+      const total = history.length;
+      const desired = { Dragon: 0.45, Tiger: 0.45, Tie: 0.10 };
+      const deltas = Object.fromEntries(
+        Object.entries(desired).map(([k, v]) => [k, v - (count[k] / total || 0)])
+      );
+      return Object.entries(deltas).sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    function predict() {
+      if (history.length === 0) {
+        document.getElementById("prediction").textContent = "Prediction: Add some results first!";
+        return;
+      }
+
+      const weights = { Dragon: 0, Tiger: 0, Tie: 0 };
+      let totalWeight = 0;
+      for (let i = 0; i < history.length; i++) {
+        let weight = i + 1;
+        weights[history[i]] += weight;
+        totalWeight += weight;
+      }
+
+      for (let key in weights) {
+        weights[key] = (weights[key] / totalWeight) * 100;
+      }
+
+      let streakCount = 1;
+      let streakItem = history[history.length - 1];
+      for (let i = history.length - 2; i >= 0; i--) {
+        if (history[i] === streakItem) streakCount++;
+        else break;
+      }
+
+      let streakSuggestion = "";
+      if (streakCount >= 4) {
+        streakSuggestion = (streakItem === "Dragon") ? "Tiger" : "Dragon";
+      } else if (streakCount === 3) {
+        streakSuggestion = streakItem;
+      }
+
+      const sequenceGuess = getSequencePrediction();
+      const balanceGuess = getBalancedPrediction();
+      let prediction = streakSuggestion || sequenceGuess || balanceGuess;
+
+      const tieRatio = history.filter(r => r === "Tie").length / history.length;
+      const randomChance = Math.random();
+      if (prediction === "Tie" && tieRatio < 0.1 && randomChance > 0.1) {
+        prediction = balanceGuess !== "Tie" ? balanceGuess : "Dragon";
+      }
+
+      if (wrongStreak >= 2) {
+        if (prediction === "Dragon") prediction = "Tiger";
+        else if (prediction === "Tiger") prediction = "Dragon";
+        else prediction = "Dragon";
+        wrongStreak = 0;
+      }
+
+      lastPrediction = prediction;
+      document.getElementById("prediction").textContent = "Prediction: " + prediction;
+    }
+  
+let patternStats = {};
+let comboStats = {};
+let predictionConfidence = 0;
+
+function updatePatternStats() {
+  patternStats = {};
+  for (let i = 0; i < history.length - 1; i++) {
+    const key = history[i];
+    const next = history[i + 1];
+    if (!patternStats[key]) patternStats[key] = {};
+    patternStats[key][next] = (patternStats[key][next] || 0) + 1;
+  }
+}
+
+function updateComboStats() {
+  comboStats = {};
+  for (let i = 0; i < history.length - 2; i++) {
+    const key = history[i] + "-" + history[i + 1];
+    const next = history[i + 2];
+    if (!comboStats[key]) comboStats[key] = {};
+    comboStats[key][next] = (comboStats[key][next] || 0) + 1;
+  }
+}
+
+function getSmartPrediction() {
+  updatePatternStats();
+  updateComboStats();
+
+  const last = history[history.length - 1];
+  const last2 = history.slice(-2).join("-");
+  const suggestions = {};
+
+  if (patternStats[last]) {
+    for (let [next, freq] of Object.entries(patternStats[last])) {
+      suggestions[next] = (suggestions[next] || 0) + freq * 1.2;
+    }
+  }
+
+  if (comboStats[last2]) {
+    for (let [next, freq] of Object.entries(comboStats[last2])) {
+      suggestions[next] = (suggestions[next] || 0) + freq * 1.5;
+    }
+  }
+
+  let best = Object.entries(suggestions).sort((a, b) => b[1] - a[1])[0];
+  predictionConfidence = best ? (best[1] / Object.values(suggestions).reduce((a, b) => a + b, 0)) * 100 : 0;
+
+  return best ? best[0] : "";
+}
+
+// Modify main predict function to include smart logic
+const originalPredict = predict;
+predict = function() {
+  if (history.length < 5) {
+    return originalPredict();
+  }
+
+  const smartGuess = getSmartPrediction();
+  const backup = getBalancedPrediction();
+  const finalPrediction = smartGuess || backup || "Dragon";
+
+  lastPrediction = finalPrediction;
+  document.getElementById("prediction").textContent = "Prediction: " + finalPrediction + " (Confidence: " + predictionConfidence.toFixed(1) + "%)";
+}
+</script>
+  <img src="icon.png" style="display:none;" alt="icon preload">
+
+<script>
+// --- CORE VARIABLES ---
+let history = [];
+let predictionConfidence = 0;
+let lastPrediction = "";
+let historyDepth = 50;
+let useTimeDecay = true;
+let useUltraAI = true;
+
+// --- DOM INIT ---
+document.addEventListener("DOMContentLoaded", () => {
+  const panel = document.createElement("div");
+  panel.innerHTML = `
+    <label>History Depth: <input type="number" id="historyDepth" value="50" min="5" max="200" /></label>
+    <label><input type="checkbox" id="timeDecay" checked /> Use Time Decay</label>
+    <label><input type="checkbox" id="ultraMode" checked /> Use Ultra AI Mode</label>
+    <button onclick="runBacktest()">Run Backtest</button>
+    <button onclick="saveHistory()">Save</button>
+    <button onclick="loadHistory()">Load</button>
+    <button onclick="clearHistory()">Clear</button>
+    <p id="backtestResult"></p>
+    <div id="confidenceAlert" style="font-weight:bold;"></div>
+    <pre id="accuracyGraph"></pre>
+  `;
+  document.body.insertBefore(panel, document.body.firstChild);
+
+  document.getElementById("historyDepth").addEventListener("change", e => {
+    historyDepth = parseInt(e.target.value);
+  });
+  document.getElementById("timeDecay").addEventListener("change", e => {
+    useTimeDecay = e.target.checked;
+  });
+  document.getElementById("ultraMode").addEventListener("change", e => {
+    useUltraAI = e.target.checked;
+  });
+
+  loadHistory();
+  updateHistoryDisplay();
+});
+
+// --- HISTORY UTILS ---
+function saveHistory() {
+  localStorage.setItem("dragonTigerHistory", JSON.stringify(history));
+}
+function loadHistory() {
+  const saved = localStorage.getItem("dragonTigerHistory");
+  if (saved) {
+    history = JSON.parse(saved);
+  }
+}
+function clearHistory() {
+  history = [];
+  saveHistory();
+  updateHistoryDisplay();
+}
+
+// --- SMART + ULTRA PREDICTION ---
+function getBalancedPrediction() {
+  const r = Math.random();
+  if (r < 0.45) return "Dragon";
+  if (r < 0.90) return "Tiger";
+  return "Tie";
+}
+function getSmartPrediction() {
+  const last = history[history.length - 1];
+  if (!last) return getBalancedPrediction();
+  if (last === "Dragon") return "Tiger";
+  if (last === "Tiger") return "Dragon";
+  return getBalancedPrediction();
+}
+function getUltraPrediction() {
+  const recent = history.slice(-historyDepth);
+  let stats = { Dragon: 0, Tiger: 0, Tie: 0 };
+  for (let i = 0; i < recent.length - 1; i++) {
+    let weight = useTimeDecay ? (i + 1) / recent.length : 1;
+    stats[recent[i + 1]] = (stats[recent[i + 1]] || 0) + weight;
+  }
+  const total = Object.values(stats).reduce((a, b) => a + b, 0);
+  if (total === 0) return "Dragon";
+  let chances = Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v / total]));
+  if ((stats["Tie"] || 0) < 3 || chances["Tie"] < 0.15) chances["Tie"] = 0;
+  let best = Object.entries(chances).sort((a, b) => b[1] - a[1])[0];
+  predictionConfidence = best[1] * 100;
+  updateConfidenceDisplay(predictionConfidence);
+  return best[0];
+}
+function updateConfidenceDisplay(confidence) {
+  const el = document.getElementById("confidenceAlert");
+  if (!el) return;
+  if (confidence > 80) {
+    el.style.color = "green";
+    el.textContent = "HIGH Confidence";
+  } else if (confidence > 60) {
+    el.style.color = "orange";
+    el.textContent = "MEDIUM Confidence";
+  } else {
+    el.style.color = "red";
+    el.textContent = "LOW Confidence";
+  }
+}
+
+// --- PREDICT / HISTORY / BACKTEST ---
+function predict() {
+  if (history.length < 5) {
+    lastPrediction = getBalancedPrediction();
+    predictionConfidence = 33;
+  } else {
+    lastPrediction = useUltraAI ? getUltraPrediction() : getSmartPrediction();
+  }
+  document.getElementById("prediction").textContent = "Prediction: " + lastPrediction + " (Confidence: " + predictionConfidence.toFixed(1) + "%)";
+  updateConfidenceDisplay(predictionConfidence);
+}
+function submitResult(result) {
+  history.push(result);
+  updateHistoryDisplay();
+  saveHistory();
+}
+function updateHistoryDisplay() {
+  document.getElementById("history").textContent = "History: " + history.join(", ");
+}
+function runBacktest() {
+  if (history.length < 10) {
+    document.getElementById("backtestResult").textContent = "Add more history to test.";
+    return;
+  }
+  let correct = 0;
+  let total = 0;
+  let temp = [...history];
+  let graph = "";
+  for (let i = 0; i < temp.length - 1; i++) {
+    history = temp.slice(0, i + 1);
+    let guess = useUltraAI ? getUltraPrediction() : getSmartPrediction();
+    let actual = temp[i + 1];
+    graph += guess === actual ? "|" : ".";
+    if (guess === actual) correct++;
+    total++;
+  }
+  history = temp;
+  const acc = (correct / total * 100).toFixed(2);
+  document.getElementById("backtestResult").textContent = "Backtest Accuracy: " + acc + "%";
+  document.getElementById("accuracyGraph").textContent = graph;
+}
+</script>
+
+<div style="margin-top: 20px;">
+  <h2 id="prediction">Prediction: (Click Predict)</h2>
+  <div>
+    <button onclick="submitResult('Dragon')">Dragon</button>
+    <button onclick="submitResult('Tiger')">Tiger</button>
+    <button onclick="submitResult('Tie')">Tie</button>
+    <button onclick="predict()">Predict</button>
+  </div>
+  <p id="history">History: </p>
+</div>
+</body>
+
+</html>
